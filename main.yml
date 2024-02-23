@@ -1,0 +1,12 @@
+- name: Kubernetes
+  hosts: kubernetes
+  become: true
+  roles:
+    - kubernetes
+  environment:
+    PATH: "{{ ansible_env.PATH }}:/usr/local/bin:/var/lib/rancher/rke2/bin:/var/lib/snapd/snap/bin"
+    VIP: "{{ rancher_ip }}"
+    TAG: "{{ kube_vip_version }}"
+    INTERFACE: "{{ ethernet_interface }}"
+    CONTAINER_RUNTIME_ENDPOINT: unix:///run/k3s/containerd/containerd.sock
+    CONTAINERD_ADDRESS: /run/k3s/containerd/containerd.sock

@@ -1,0 +1,149 @@
+- name: Configure K8S kernel parameters for boot
+  ansible.builtin.blockinfile:
+    path: /etc/sysctl.d/local.conf
+    create: true
+    owner: root
+    group: root
+    mode: "0644"
+    block: |
+      net.ipv4.tcp_max_syn_backlog=40000
+      net.core.somaxconn=40000
+      net.core.wmem_default=8388608
+      net.core.rmem_default=8388608
+      net.ipv4.tcp_fin_timeout=15
+      net.ipv4.tcp_keepalive_intvl=30
+      net.ipv4.tcp_tw_reuse=1
+      net.core.rmem_max=134217728
+      net.core.wmem_max=134217728
+      net.ipv4.tcp_mem=134217728 134217728 134217728
+      net.ipv4.tcp_rmem=4096 277750 134217728
+      net.ipv4.tcp_wmem=4096 277750 134217728
+      net.core.netdev_max_backlog=300000
+      fs.inotify.max_user_instances=8192
+      fs.inotify.max_user_watches=524288
+  when: ansible_distribution == 'RedHat'
+
+- name: Configure K8S kernel parameters for boot
+  ansible.builtin.blockinfile:
+    path: /etc/sysctl.conf
+    create: true
+    owner: root
+    group: root
+    mode: "0644"
+    block: |
+      net.ipv4.tcp_max_syn_backlog=40000
+      net.core.somaxconn=40000
+      net.core.wmem_default=8388608
+      net.core.rmem_default=8388608
+      net.ipv4.tcp_fin_timeout=15
+      net.ipv4.tcp_keepalive_intvl=30
+      net.ipv4.tcp_tw_reuse=1
+      net.core.rmem_max=134217728
+      net.core.wmem_max=134217728
+      net.ipv4.tcp_mem=134217728 134217728 134217728
+      net.ipv4.tcp_rmem=4096 277750 134217728
+      net.ipv4.tcp_wmem=4096 277750 134217728
+      net.core.netdev_max_backlog=300000
+      fs.inotify.max_user_instances=8192
+      fs.inotify.max_user_watches=524288
+  when: ansible_os_family == 'Debian'
+
+- name: Stop firewalld service comming from packer template
+  ansible.builtin.service:
+    name: firewalld
+    state: stopped
+    enabled: false
+  when: ansible_distribution == 'RedHat'
+
+- name: / filesystem disk resize %100
+  throttle: 1
+  shell: |
+    echo -e "yes\n100%" | parted /dev/sda ---pretend-input-tty unit % resizepart 3
+    xfs_growfs /
+  when: ansible_distribution == 'RedHat'
+
+- name: Get the Redhat Subscription status
+  shell: subscription-manager status | grep "Current" -q
+  ignore_errors: true
+  register: subscribe_status
+  when: ansible_distribution == 'RedHat'
+
+- debug: 
+    msg="Subscription status output is {{ subscribe_status.rc }}"
+  when: ansible_distribution == 'RedHat'
+
+- name: Registering Redhat Subscription and auto-subscribe to available content
+  community.general.redhat_subscription:
+    state: present
+    username: "{{ rhsm_username }}"
+    password: "{{ rhsm_password }}"
+    auto_attach: true
+  when:
+    - ansible_distribution == 'RedHat'
+    - subscribe_status.rc != 0
+
+- name: Get the Redhat Subscription status
+  shell: subscription-manager status | grep "Current" -q
+  ignore_errors: true
+  register: subscribe_status
+  when: ansible_distribution == 'RedHat'
+
+- debug: 
+    msg="Subscription status output is {{ subscribe_status.rc }}"
+  when: ansible_distribution == 'RedHat'
+
+- name: "Updating the operating system. Debian based"
+  apt:
+    name: "*"
+    state: latest     # noqa package-latest
+    force_apt_get: true
+    update_cache: true
+  when: ansible_os_family == 'Debian'
+
+- name: "Updating the guest operating system. RedHat based"
+  dnf:
+    name: "*"
+    state: latest     # noqa package-latest
+    update_cache: "yes"
+  when: 
+    - "ansible_facts['distribution_major_version'] >= \"8\""
+    - ansible_distribution == 'RedHat'
+
+# Longhorn için open-scsi servisi kurulu ve çalışır durumda olmalı
+- name: Installing open-iscsi packages
+  dnf:
+    name:
+      - iscsi-initiator-utils
+    state: latest
+  when: ansible_distribution == 'RedHat'
+
+- name: Start and enable iscsid service
+  ansible.builtin.service:
+    name: iscsid.service
+    state: started
+    enabled: true
+  when: ansible_distribution == 'RedHat'
+  
+- name: Add IP address of rancher & kube-vip to all hosts
+  lineinfile:
+    dest: /etc/hosts
+    regexp: '.*{{ rancher_ip }}$'
+    line: "{{ rancher_ip }} {{first_addition}}-rancher.{{domain_name}}  {{first_addition}}-rancher"
+    state: present
+  with_items: "{{ groups.all }}"
+
+- name: Add IP address of all hosts to all hosts
+  lineinfile:
+    dest: /etc/hosts
+    regexp: '.*{{ item }}$'
+    line: "{{ hostvars[item].ansible_host }} {{ first_addition }}-{{ item }}.{{ domain_name }}  {{ first_addition }}-{{ item }}"
+    state: present
+  when: hostvars[item].ansible_host is defined
+  with_items: "{{ groups.all }}"
+  
+- name: Create '/etc/rancher/rke2' directory if it does not exist
+  ansible.builtin.file:
+    path: /etc/rancher/rke2
+    state: directory
+    mode: '0755'
+

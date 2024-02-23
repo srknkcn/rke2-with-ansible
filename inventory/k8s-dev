@@ -1,0 +1,45 @@
+kubernetes:
+    hosts:
+        bastion:
+            ansible_host: 192.168.1.31
+        node1:
+            ansible_host: 192.168.1.33
+        node2:
+            ansible_host: 192.168.1.34
+        node3:
+            ansible_host: 192.168.1.35
+        worker1:
+            ansible_host: 192.168.1.36
+        worker2:
+            ansible_host: 192.168.1.37
+        worker3:
+            ansible_host: 192.168.1.38
+    vars:
+        rancher_ip: 192.168.1.32
+        ansible_port: 22
+        rke2_version: v1.27.10+rke2r1
+        kube_vip_version: v0.7.0
+        ethernet_interface: ens192
+        # Rancher UI example running URL: k8s-dev.yourdomain.com
+        # Setup your FQDN's Hostname
+        first_addition: k8s-dev
+        # Setup your FQDN's Domain name
+        domain_name: yourdomain.com
+        ###############################################################################################################################################################
+        # Select which ssl certificate type do you need? Get from Let's Encrypt OR Bring your own certificate from files? Types: letsEncrypt / secret
+        ssl_certificate_type: letsEncrypt
+        ## Let's Encrypt section required parameters (Your rancher URL's FQDN must be reachable from Internet on port 80 as HTTP-01 challenge can be done)
+        ssl_certificate_letsEncrypt_email: srknkcn@gmail.com
+        ## Bring your own certificate section required parameters (Files must be uploaded to roles/kubernetes/files directory as PEM-encoded)
+        ssl_certificate_tls_crt_filename: tls.crt
+        ssl_certificate_tls_key_filename: tls.key
+        ###############################################################################################################################################################
+        rhsm_username: "srknkcn@gmail.com"
+        rhsm_password: "YourRedHatSubscriptionEmailAndPasswordMustBeGiven if hosts are Redhat based"
+        rancher_hostname: "{{ first_addition }}-rancher"
+        node1_hostname: "{{ first_addition }}-node1"
+        node2_hostname: "{{ first_addition }}-node2"
+        node3_hostname: "{{ first_addition }}-node3"
+        worker1_hostname: "{{ first_addition }}-worker1"
+        worker2_hostname: "{{ first_addition }}-worker2"
+        worker3_hostname: "{{ first_addition }}-worker3"

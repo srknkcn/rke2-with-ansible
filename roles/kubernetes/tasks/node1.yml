@@ -1,0 +1,109 @@
+- name: Set env variable KUBECONFIG
+  lineinfile:
+    path: /root/.bashrc
+    line: export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+  when: "inventory_hostname in ['node1']"
+
+- name: Load new env variables
+  shell: . /root/.bashrc 
+
+- name: Construct the config.yaml file content for node1
+  set_fact:
+    config_yaml_content: |
+      tls-san:
+        - {{ node1_hostname }}
+        - {{ node1_hostname }}.{{ domain_name }}
+        - {{ rancher_ip }}
+        - {{ hostvars[ 'node1' ].ansible_host }}
+        - {{ rancher_hostname }}.{{ domain_name }}
+  when: "inventory_hostname in ['node1']"
+
+- name: Print content
+  debug: var=config_yaml_content
+  when: "inventory_hostname in ['node1']"
+
+- name: Copy content to /etc/rancher/rke2/config.yaml
+  ansible.builtin.copy:
+    content: "{{ config_yaml_content }}"
+    dest: /etc/rancher/rke2/config.yaml
+    owner: root
+    group: root
+    mode: "0644"
+  when: "inventory_hostname in ['node1']"
+
+- name: Server node installation
+  shell: |
+    curl -sfL https://get.rke2.io | INSTALL_RKE2_VERSION="{{ rke2_version }}" sh -
+  register: setup_response
+  when: "inventory_hostname in ['node1']"
+
+- name: Print setup response
+  debug:
+    var: setup_response
+  when: "inventory_hostname in ['node1']"
+
+- name: Start and enable rke2 service
+  ansible.builtin.service:
+    name: rke2-server
+    state: started
+    enabled: true
+  when: "inventory_hostname in ['node1']"
+
+- name: Download kube-vip RBAC file from url
+  get_url:
+    url: https://kube-vip.io/manifests/rbac.yaml
+    dest: /var/lib/rancher/rke2/server/manifests/kube-vip-rbac.yaml
+    mode: "0744"
+  when: "inventory_hostname in ['node1']"
+
+- name: alias to kube-vip
+  lineinfile:
+    path: /root/.bashrc
+    line: alias kube-vip="ctr --namespace k8s.io run --rm --net-host docker.io/plndr/kube-vip:$TAG vip /kube-vip"
+    create: true
+  when: "inventory_hostname in ['node1']"
+
+- name: export PATH env with rke2 bin folder
+  lineinfile:
+    path: /root/.bashrc
+    line: export PATH=$PATH:/usr/local/bin:/var/lib/rancher/rke2/bin:/var/lib/snapd/snap/bin
+    create: true
+  when: "inventory_hostname in ['node1']"
+
+- name: Crictl debug container
+  shell: |
+    crictl pull docker.io/plndr/kube-vip:$TAG
+  when: "inventory_hostname in ['node1']"
+
+- name: Construct the kube-vip daemonset cli
+  set_fact:
+    kube_vip_daemonset_cli: >-
+      ctr --namespace k8s.io run --rm --net-host docker.io/plndr/kube-vip:$TAG vip /kube-vip manifest daemonset
+      --arp
+      --ddns
+      --interface $INTERFACE
+      --address {{ rancher_ip }}
+      --controlplane
+      --leaderElection
+      --taint
+      --services
+      --inCluster | tee /var/lib/rancher/rke2/server/manifests/kube-vip.yaml
+  when: "inventory_hostname in ['node1']"
+
+- name: Print kube_vip_daemonset_cli output
+  debug:
+    var: kube_vip_daemonset_cli
+  when: "inventory_hostname in ['node1']"
+
+- name: Kube-vip installation
+  shell: |
+    {{ kube_vip_daemonset_cli }}
+  register: output_response
+  when: "inventory_hostname in ['node1']"
+
+- name: Print "Kube-vip installation" output
+  debug:
+    var: output_response
+  when: "inventory_hostname in ['node1']"
+
+

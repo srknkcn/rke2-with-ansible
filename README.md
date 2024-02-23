@@ -7,4 +7,11 @@ This project supports the following guest operating systems:
 
 | Operating System             | Version   |
 | :---                         | :---      |
+| Ubuntu Server                | 22.04 LTS |
 | Red Hat Enterprise Linux     | 8         |
+| Red Hat Enterprise Linux     | 9         |
+
+## Create RKE2 Kubernetes cluster
+
+ansible-playbook main.yml -i inventory/k8s-dev
+ansible-playbook main.yml -i inventory/k8s-prod

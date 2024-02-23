@@ -1,0 +1,232 @@
+- name: Set env variable KUBECONFIG
+  lineinfile:
+    path: /root/.bashrc
+    line: export KUBECONFIG=/root/.kube/config
+  when: "inventory_hostname in ['bastion']"
+
+- name: Load new env variables
+  shell: . /root/.bashrc 
+  register: mytestenv
+  when: "inventory_hostname in ['bastion']"
+
+- debug: var=mytestenv
+  when: "inventory_hostname in ['bastion']"
+
+- debug:
+    msg: "{{ansible_env}}"
+
+- name: Get latest kubectl version
+  uri:
+    url: https://dl.k8s.io/release/stable.txt
+    return_content: yes
+  register: jsondata
+  when: "inventory_hostname in ['bastion']"
+
+- debug: msg="Latest version info is {{ jsondata['content'] }}"
+  when: "inventory_hostname in ['bastion']"
+
+- name: Executable kubectl is downloaded to /usr/local/bin
+  get_url:
+    url: https://dl.k8s.io/release/{{ jsondata['content'] }}/bin/linux/amd64/kubectl
+    dest: /usr/local/bin/kubectl
+    mode: "0700"
+  when: "inventory_hostname in ['bastion']"
+
+- name: export PATH env with rke2 bin folder
+  lineinfile:
+    path: /root/.bashrc
+    line: export PATH=$PATH:/usr/local/bin:/var/lib/rancher/rke2/bin:/var/lib/snapd/snap/bin
+    create: true
+  when: "inventory_hostname in ['bastion']"
+
+- name: Create a directory if it does not exist
+  ansible.builtin.file:
+    path: /root/.kube
+    state: directory
+    mode: '0755'
+  when: "inventory_hostname in ['bastion']"
+
+- name: Fetch the file from the node1 to me
+  ansible.builtin.fetch:
+    src: /etc/rancher/rke2/rke2.yaml
+    dest: /tmp/
+    flat: yes
+  when: "inventory_hostname in ['node1']"
+
+- name: Copy the file from me to bastion
+  ansible.builtin.copy:
+    src: /tmp/rke2.yaml
+    dest: /root/.kube/config
+    mode: '0600'
+  when: "inventory_hostname in ['bastion']"
+
+- name: Change localhost ip addr to rancher ip addr
+  shell: |
+    sed -i 's/127.0.0.1/{{ rancher_ip }}/g' /root/.kube/config
+  when: "inventory_hostname in ['bastion']"
+
+- name: Installing snapd packages
+  dnf:
+    name:
+      - snapd
+    state: latest
+  when:
+    - "inventory_hostname in ['bastion']"
+    - ansible_distribution == 'RedHat'
+
+
+- name: To enable classic snap support we must create symbolic link 
+  file:
+    src: "/var/lib/snapd/snap"
+    dest: "/snap"
+    state: link
+  when: 
+    - "inventory_hostname in ['bastion']"
+    - ansible_distribution == 'RedHat'
+
+- name: Start and enable snapd service
+  ansible.builtin.service:
+    name: snapd.service
+    state: started
+    enabled: true
+  when: 
+    - "inventory_hostname in ['bastion']"
+    - ansible_distribution == 'RedHat'
+
+- name: Wait for service 'snapd.service' to be running
+  service_facts:
+  register: result
+  until: result.ansible_facts.services['snapd.service'].state == 'running'
+  retries: 10
+  delay: 5
+  when: 
+    - "inventory_hostname in ['bastion']"
+    - ansible_distribution == 'RedHat'
+
+- name: Install helm via snap
+  community.general.snap:
+    name: helm
+    classic: true
+    state: present
+    channel: "stable"
+  when: "inventory_hostname in ['bastion']"
+
+- name: Create cattle-system for kubernetes orchestration
+  shell: |
+    kubectl create namespace cattle-system 
+    helm repo add rancher-latest https://releases.rancher.com/server-charts/latest
+    helm repo update
+  register: shell_output
+  when: "inventory_hostname in ['bastion']"
+
+- debug: var=shell_output
+  when: "inventory_hostname in ['bastion']"
+
+- name: Create cert-manager for kubernetes letsEncrypt certificate management
+  shell: |
+    helm repo add jetstack https://charts.jetstack.io --force-update
+    helm repo update
+    helm upgrade --install cert-manager jetstack/cert-manager \
+      --namespace cert-manager \
+      --create-namespace \
+      --set installCRDs=true
+  register: shell_output
+  when: 
+    - "inventory_hostname in ['bastion']"
+    - ssl_certificate_type is match("letsEncrypt")
+
+- debug: var=shell_output
+  when: 
+    - "inventory_hostname in ['bastion']"
+    - ssl_certificate_type is match("letsEncrypt")
+
+- name: Create '/root/certs' directory if it does not exist
+  ansible.builtin.file:
+    path: /root/certs
+    state: directory
+    mode: '0755'
+  when: 
+    - "inventory_hostname in ['bastion']"
+    - ssl_certificate_type is match("secret")
+
+- name: Copy SSL key file for https
+  ansible.builtin.copy:
+    src: "{{ssl_certificate_tls_key_filename}}"
+    dest: /root/certs/{{ssl_certificate_tls_key_filename}}
+    owner: root
+    group: root
+    mode: "0600"
+  when: 
+    - "inventory_hostname in ['bastion']"
+    - ssl_certificate_type is match("secret")
+
+- name: Copy SSL crt file for https
+  ansible.builtin.copy:
+    src: "{{ssl_certificate_tls_crt_filename}}"
+    dest: /root/certs/{{ssl_certificate_tls_crt_filename}}
+    owner: root
+    group: root
+    mode: "0600"
+  when: 
+    - "inventory_hostname in ['bastion']"
+    - ssl_certificate_type is match("secret")
+
+- name: Pause for 1 minutes to build app cache
+  ansible.builtin.pause:
+    minutes: 1
+
+- name: Create cattle-system TLS feature for kubernetes orchestration (Bring your own certificate)
+  shell: |
+    kubectl -n cattle-system create secret tls tls-rancher-ingress --cert=/root/certs/{{ssl_certificate_tls_crt_filename}} --key=/root/certs/{{ssl_certificate_tls_key_filename}}
+    helm upgrade --install rancher rancher-latest/rancher \
+      --namespace cattle-system \
+      --set hostname={{ rancher_hostname }}.{{ domain_name }} \
+      --set replicas=3 \
+      --set antiAffinity=required \
+      --set ingress.tls.source=secret \
+  register: shell_output
+  when: 
+    - "inventory_hostname in ['bastion']"
+    - ssl_certificate_type is match("secret")
+
+- debug: var=shell_output
+  when: 
+    - "inventory_hostname in ['bastion']"
+    - ssl_certificate_type is match("secret")
+
+- name: Create cert-manager & cattle-system TLS feature for kubernetes orchestration (Let's Encrypt)
+  shell: |
+    helm upgrade --install rancher rancher-latest/rancher \
+      --namespace cattle-system \
+      --set hostname={{ rancher_hostname }}.{{ domain_name }} \
+      --set replicas=3 \
+      --set antiAffinity=required \
+      --set ingress.tls.source=letsEncrypt \
+      --set letsEncrypt.email={{ssl_certificate_letsEncrypt_email}} \
+      --set letsEncrypt.ingress.class=nginx
+  register: shell_output
+  when: 
+    - "inventory_hostname in ['bastion']"
+    - ssl_certificate_type is match("letsEncrypt")
+
+- debug: var=shell_output
+  when: 
+    - "inventory_hostname in ['bastion']"
+    - ssl_certificate_type is match("letsEncrypt")
+
+- name: Wait until HTTP status is 200
+  uri:
+    url: "https://{{ rancher_hostname }}.{{ domain_name }}/dashboard/auth/login"
+    return_content: yes
+    validate_certs: no
+    status_code:
+      - 200
+  until: uri_output.status == 200
+  retries: 48 # Retries for 48 * 5 seconds = 120 seconds = 2 minutes
+  delay: 5 # Every 5 seconds
+  register: uri_output
+  when: "inventory_hostname in ['bastion']"
+
+- debug: var=uri_output
+  when: "inventory_hostname in ['bastion']"
+

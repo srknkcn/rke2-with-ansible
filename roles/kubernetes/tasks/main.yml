@@ -1,0 +1,14 @@
+- name: Setup nodes
+  ansible.builtin.include_tasks: all.yml
+
+- name: Setup node1
+  ansible.builtin.include_tasks: node1.yml
+
+- name: Setup bastion
+  ansible.builtin.include_tasks: bastion.yml
+
+- name: Setup nodeN
+  ansible.builtin.include_tasks: nodeN.yml
+
+- name: Setup workerN
+  ansible.builtin.include_tasks: workerN.yml
