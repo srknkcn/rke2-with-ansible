@@ -1,4 +1,4 @@
-# node1 üstünden token temin ediliyor
+# Read token from master node1 and copy to config.yaml for other slave nodes
 - name: "Read a file content"
   shell: |
     cat /var/lib/rancher/rke2/server/token
@@ -8,21 +8,6 @@
 - name: "Print the file content to a console"
   debug:
     msg: "{{ hostvars['node1']['token']['stdout'] }}"
-  when: "inventory_hostname in ['node1']"
-
-# node N üstünde rke2 config yaml dosyası oluşturuluyor
-- name: Create '/etc/rancher/rke2' directory if it does not exist
-  ansible.builtin.file:
-    path: /etc/rancher/rke2
-    state: directory
-    mode: '0755'
-  when: "inventory_hostname in ['worker1','worker2','worker3']"
-
-# node1 üstünden token temin ediliyor
-- name: "Read a file content"
-  shell: |
-    cat /var/lib/rancher/rke2/server/token
-  register: token
   when: "inventory_hostname in ['node1']"
 
 - name: Construct the config.yaml file content for nodeN

@@ -55,41 +55,39 @@
     enabled: false
   when: ansible_distribution == 'RedHat'
 
-- name: / filesystem disk resize %100
+- name: / filesystem disk resize %100 comming from packer template which is not enlarged
   throttle: 1
   shell: |
     echo -e "yes\n100%" | parted /dev/sda ---pretend-input-tty unit % resizepart 3
     xfs_growfs /
   when: ansible_distribution == 'RedHat'
 
-- name: Get the Redhat Subscription status
-  shell: subscription-manager status | grep "Current" -q
-  ignore_errors: true
-  register: subscribe_status
-  when: ansible_distribution == 'RedHat'
+- name: Get the Redhat Subscription status and register hosts if they are not registered
+  block:
+    - name: Get the Redhat Subscription status
+      shell: subscription-manager status | grep "Current" -q
+      ignore_errors: true
+      register: subscribe_status
 
-- debug: 
-    msg="Subscription status output is {{ subscribe_status.rc }}"
-  when: ansible_distribution == 'RedHat'
+    - debug: 
+        msg="Subscription status output is {{ subscribe_status.rc }}"
 
-- name: Registering Redhat Subscription and auto-subscribe to available content
-  community.general.redhat_subscription:
-    state: present
-    username: "{{ rhsm_username }}"
-    password: "{{ rhsm_password }}"
-    auto_attach: true
-  when:
-    - ansible_distribution == 'RedHat'
-    - subscribe_status.rc != 0
+    - name: Registering Redhat Subscription and auto-subscribe to available content
+      community.general.redhat_subscription:
+        state: present
+        username: "{{ rhsm_username }}"
+        password: "{{ rhsm_password }}"
+        auto_attach: true
+      when:
+        - subscribe_status.rc != 0
 
-- name: Get the Redhat Subscription status
-  shell: subscription-manager status | grep "Current" -q
-  ignore_errors: true
-  register: subscribe_status
-  when: ansible_distribution == 'RedHat'
+    - name: Get the Redhat Subscription status
+      shell: subscription-manager status | grep "Current" -q
+      ignore_errors: true
+      register: subscribe_status
 
-- debug: 
-    msg="Subscription status output is {{ subscribe_status.rc }}"
+    - debug: 
+        msg="Subscription status output is {{ subscribe_status.rc }}"
   when: ansible_distribution == 'RedHat'
 
 - name: "Updating the operating system. Debian based"
@@ -109,22 +107,24 @@
     - "ansible_facts['distribution_major_version'] >= \"8\""
     - ansible_distribution == 'RedHat'
 
-# Longhorn için open-scsi servisi kurulu ve çalışır durumda olmalı
-- name: Installing open-iscsi packages
-  dnf:
-    name:
-      - iscsi-initiator-utils
-    state: latest
-  when: ansible_distribution == 'RedHat'
+# Longhorn uses open-iscsi to create block devices for RedHat
+# https://longhorn.io/kb/troubleshooting-open-iscsi-on-rhel/
+- name: Install, configure, and start open-iscsi for RedHat
+  block:
+    - name: Installing open-iscsi packages
+      dnf:
+        name:
+          - iscsi-initiator-utils
+        state: latest
 
-- name: Start and enable iscsid service
-  ansible.builtin.service:
-    name: iscsid.service
-    state: started
-    enabled: true
+    - name: Start and enable iscsid service
+      ansible.builtin.service:
+        name: iscsid.service
+        state: started
+        enabled: true
   when: ansible_distribution == 'RedHat'
   
-- name: Add IP address of rancher & kube-vip to all hosts
+- name: Add IP address and FQDN address of rancher & kube-vip to all hosts
   lineinfile:
     dest: /etc/hosts
     regexp: '.*{{ rancher_ip }}$'
@@ -132,7 +132,7 @@
     state: present
   with_items: "{{ groups.all }}"
 
-- name: Add IP address of all hosts to all hosts
+- name: Add IP address and FQDN address of rke2 server&agent nodes to all hosts
   lineinfile:
     dest: /etc/hosts
     regexp: '.*{{ item }}$'
@@ -141,7 +141,7 @@
   when: hostvars[item].ansible_host is defined
   with_items: "{{ groups.all }}"
   
-- name: Create '/etc/rancher/rke2' directory if it does not exist
+- name: Create '/etc/rancher/rke2' directory if it does not exist for feature tasks
   ansible.builtin.file:
     path: /etc/rancher/rke2
     state: directory

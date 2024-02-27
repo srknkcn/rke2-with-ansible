@@ -1,4 +1,4 @@
-# node1 üstünden token temin ediliyor
+# Read token from master node1 and copy to config.yaml for other master nodes
 - name: "Read a file content"
   shell: |
     cat /var/lib/rancher/rke2/server/token
@@ -9,14 +9,6 @@
   debug:
     msg: "{{ hostvars['node1']['token']['stdout'] }}"
   when: "inventory_hostname in ['node1']"
-
-# node N üstünde rke2 config yaml dosyası oluşturuluyor
-- name: Create '/etc/rancher/rke2' directory if it does not exist
-  ansible.builtin.file:
-    path: /etc/rancher/rke2
-    state: directory
-    mode: '0755'
-  when: "inventory_hostname in ['node2','node3']"
 
 - name: Construct the config.yaml file content for nodeN
   set_fact:

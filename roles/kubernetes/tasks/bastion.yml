@@ -65,41 +65,33 @@
     sed -i 's/127.0.0.1/{{ rancher_ip }}/g' /root/.kube/config
   when: "inventory_hostname in ['bastion']"
 
-- name: Installing snapd packages
-  dnf:
-    name:
-      - snapd
-    state: latest
+- name: Install, configure, and start snapd for RedHat (for Helm installation)
+  block:
+    - name: Installing snapd packages
+      dnf:
+        name:
+          - snapd
+        state: latest
+
+    - name: To enable classic snap support we must create symbolic link 
+      file:
+        src: "/var/lib/snapd/snap"
+        dest: "/snap"
+        state: link
+
+    - name: Start and enable snapd service
+      ansible.builtin.service:
+        name: snapd.service
+        state: started
+        enabled: true
+
+    - name: Wait for service 'snapd.service' to be running
+      service_facts:
+      register: result
+      until: result.ansible_facts.services['snapd.service'].state == 'running'
+      retries: 10
+      delay: 5
   when:
-    - "inventory_hostname in ['bastion']"
-    - ansible_distribution == 'RedHat'
-
-
-- name: To enable classic snap support we must create symbolic link 
-  file:
-    src: "/var/lib/snapd/snap"
-    dest: "/snap"
-    state: link
-  when: 
-    - "inventory_hostname in ['bastion']"
-    - ansible_distribution == 'RedHat'
-
-- name: Start and enable snapd service
-  ansible.builtin.service:
-    name: snapd.service
-    state: started
-    enabled: true
-  when: 
-    - "inventory_hostname in ['bastion']"
-    - ansible_distribution == 'RedHat'
-
-- name: Wait for service 'snapd.service' to be running
-  service_facts:
-  register: result
-  until: result.ansible_facts.services['snapd.service'].state == 'running'
-  retries: 10
-  delay: 5
-  when: 
     - "inventory_hostname in ['bastion']"
     - ansible_distribution == 'RedHat'
 
